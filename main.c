@@ -1,6 +1,9 @@
 #include <stdio.h>
 #include <GL/glew.h>
 #include <GL/freeglut.h>
+#include <pthread.h>
+#include <sys/inotify.h>
+#include <unistd.h>
 
 unsigned int vao;
 unsigned int vbo;
@@ -8,13 +11,14 @@ unsigned int shader_program;
 unsigned int vertex_shader;
 unsigned int fragment_shader;
 
-const char *vertex_shader_location = "./shader.vert";
-const char *fragment_shader_location = "./shader.frag";
+const char *vertex_shader_location = "../shader.vert";
+const char *fragment_shader_location = "../shader.frag";
 
 float vertices[] = {
-        -0.5f, -0.5f, 0.0f,
-        0.5f, -0.5f, 0.0f,
-        0.0f,  0.5f, 0.0f
+        // positions         // colors
+        0.5f, -0.5f, 0.0f,  1.0f, 0.0f, 0.0f,   // bottom right
+        -0.5f, -0.5f, 0.0f,  0.0f, 1.0f, 0.0f,   // bottom left
+        0.0f,  0.5f, 0.0f,  0.0f, 0.0f, 1.0f    // top
 };
 
 int load_shader(const char *path, unsigned int shader) {
@@ -69,7 +73,23 @@ int load_shader(const char *path, unsigned int shader) {
     return 0;
 }
 
-int setup() {
+void display() {
+    glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
+    glClear(GL_COLOR_BUFFER_BIT);
+
+    glUseProgram(shader_program);
+    glBindVertexArray(vao);
+
+    glDrawArrays(GL_TRIANGLES, 0, 3);
+
+    glutSwapBuffers();
+}
+
+int load_shaders() {
+    glDeleteProgram(shader_program);
+    shader_program = glCreateProgram();
+
+    // create and load new shaders
     vertex_shader = glCreateShader(GL_VERTEX_SHADER);
     fragment_shader = glCreateShader(GL_FRAGMENT_SHADER);
 
@@ -81,7 +101,6 @@ int setup() {
         return -1;
     }
 
-    shader_program = glCreateProgram();
     glAttachShader(shader_program, vertex_shader);
     glAttachShader(shader_program, fragment_shader);
     glLinkProgram(shader_program);
@@ -100,27 +119,12 @@ int setup() {
         return -1;
     }
 
-    glGenVertexArrays(1, &vao);
-    glGenBuffers(1, &vbo);
-
-    // RUD
     glDeleteShader(vertex_shader);
     glDeleteShader(fragment_shader);
 
+    display();
+
     return 0;
-}
-
-int post_setup() {
-    glBindVertexArray(vao);
-
-    glBindBuffer(GL_ARRAY_BUFFER, vbo);
-    glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), vertices, GL_STATIC_DRAW);
-
-    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*) 0);
-    glEnableVertexAttribArray(0);
-
-    glBindBuffer(GL_ARRAY_BUFFER, 0);
-    glBindVertexArray(0);
 }
 
 void keyboard(unsigned char key, int x, int y) {
@@ -130,20 +134,47 @@ void keyboard(unsigned char key, int x, int y) {
             exit(EXIT_SUCCESS);
             break;
         }
+        case 'r':
+        case 'R':
+            if (load_shaders() != 0) {
+                fprintf(stderr, "Error: reloading shaders");
+                break;
+            }
+
+            fprintf(stdout, "Status: successfully reloaded shaders");
+
+            break;
+        default:
+            break;
     }
 }
 
+int setup() {
+    if (load_shaders() != 0) {
+        fprintf(stderr, "Error: loading shaders\n");
+        return -1;
+    }
 
-void display() {
-    glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
-    glClear(GL_COLOR_BUFFER_BIT);
+    glGenVertexArrays(1, &vao);
+    glGenBuffers(1, &vbo);
 
-    glUseProgram(shader_program);
+    return 0;
+}
+
+void post_setup() {
     glBindVertexArray(vao);
 
-    glDrawArrays(GL_TRIANGLES, 0, 3);
+    glBindBuffer(GL_ARRAY_BUFFER, vbo);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), vertices, GL_STATIC_DRAW);
 
-    glutSwapBuffers();
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void*) 0);
+    glEnableVertexAttribArray(0);
+
+    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void *) (3 * sizeof(float)));
+    glEnableVertexAttribArray(1);
+
+    glBindVertexArray(0);
+    glBindBuffer(GL_ARRAY_BUFFER, 0);
 }
 
 int main(int argc, char **argv) {
@@ -165,10 +196,7 @@ int main(int argc, char **argv) {
         return -1;
     }
 
-    if (post_setup() == -1) {
-        fprintf(stderr, "Error: Failed to post-setup\n");
-        return -1;
-    }
+    post_setup();
 
     glutMainLoop();
 
