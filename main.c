@@ -1,9 +1,8 @@
 #include <stdio.h>
 #include <GL/glew.h>
 #include <GL/freeglut.h>
-#include <pthread.h>
-#include <sys/inotify.h>
 #include <unistd.h>
+#include <cglm/cglm.h>
 
 unsigned int vao;
 unsigned int vbo;
@@ -73,18 +72,6 @@ int load_shader(const char *path, unsigned int shader) {
     return 0;
 }
 
-void display() {
-    glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
-    glClear(GL_COLOR_BUFFER_BIT);
-
-    glUseProgram(shader_program);
-    glBindVertexArray(vao);
-
-    glDrawArrays(GL_TRIANGLES, 0, 3);
-
-    glutSwapBuffers();
-}
-
 int load_shaders() {
     glDeleteProgram(shader_program);
     shader_program = glCreateProgram();
@@ -122,9 +109,55 @@ int load_shaders() {
     glDeleteShader(vertex_shader);
     glDeleteShader(fragment_shader);
 
-    display();
-
     return 0;
+}
+
+float degs = 0;
+
+void display() {
+    mat4 model;
+    vec3 model_axis = {0.5f, 0.5f, 0.5f};
+    mat4 view;
+    vec3 view_translate = {0.0f, 0.0f, -3.0f};
+    mat4 projection;
+    GLint viewport[4]; // viewport: x, y, width, height
+
+    GLint model_uniform;
+    GLint view_uniform;
+    GLint projection_uniform;
+
+    glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
+    glClear(GL_COLOR_BUFFER_BIT);
+
+    glGetIntegerv(GL_VIEWPORT, viewport);
+
+    glm_mat4_identity(model);
+
+    glm_rotate(model, glm_rad((float) degs ), model_axis);
+    degs += 0.01f;
+
+    model_uniform = glGetUniformLocation(shader_program, "model");
+    glUniformMatrix4fv(model_uniform, 1, GL_FALSE, (float *) model);
+
+    glm_mat4_identity(view);
+    glm_translate(view, view_translate);
+
+    view_uniform = glGetUniformLocation(shader_program, "view");
+    glUniformMatrix4fv(view_uniform, 1, GL_FALSE, (float *) view);
+
+    glm_mat4_identity(projection);
+    glm_perspective(glm_rad(45.0f), (float)viewport[2]/(float)viewport[3], 0.01f, 100.0f, projection);
+
+    projection_uniform = glGetUniformLocation(shader_program, "projection");
+    glUniformMatrix4fv(projection_uniform, 1, GL_FALSE, (float *) projection);
+
+    glUseProgram(shader_program);
+    glBindVertexArray(vao);
+
+    glDrawArrays(GL_TRIANGLES, 0, 3);
+
+    glutSwapBuffers();
+    glutPostRedisplay();
 }
 
 void keyboard(unsigned char key, int x, int y) {
@@ -137,11 +170,11 @@ void keyboard(unsigned char key, int x, int y) {
         case 'r':
         case 'R':
             if (load_shaders() != 0) {
-                fprintf(stderr, "Error: reloading shaders");
-                break;
+                fprintf(stderr, "Error: reloading shaders\n");
+                exit(EXIT_FAILURE);
             }
 
-            fprintf(stdout, "Status: successfully reloaded shaders");
+            fprintf(stdout, "Status: successfully reloaded shaders\n");
 
             break;
         default:
