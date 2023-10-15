@@ -2,3 +2,4 @@
 cmake-build-debug/
 build/
 .ccls-cache/
+*.mtl
