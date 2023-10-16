@@ -17,8 +17,8 @@ unsigned int vertex_shader;
 unsigned int fragment_shader;
 
 // shaders
-const char *vertex_shader_location = "../assets/shaders/shader.vert";
-const char *fragment_shader_location = "../assets/shaders/shader.frag";
+const char *vertex_shader_location = "assets/shaders/shader.vert";
+const char *fragment_shader_location = "assets/shaders/shader.frag";
 
 // GPU data
 float *vertices = NULL;
@@ -34,6 +34,31 @@ vec3 world_origin;
 vec3 up;
 vec3 right;
 vec3 forward;
+
+// structs
+struct object {
+    mat4 rotation_matrix;
+    mat4 translation_matrix;
+    vec3 translation_force;
+    vec3 rotation_force;
+    float mass;
+    void *next;
+
+    float *vertices;
+    unsigned int *indices;
+    float *normals;
+    long vertices_num;
+    long indices_num;
+    long normals_num;
+
+    unsigned int vao;
+    unsigned int vbo; // buffer for vertices
+    unsigned int ebo; // buffer for indices
+    unsigned int nbo; // buffer for normals
+};
+
+// global objects information
+struct object* objects = NULL;
 
 int load_shader(const char *path, unsigned int shader) {
     FILE *fp = fopen(path, "r");
@@ -87,15 +112,12 @@ int load_shader(const char *path, unsigned int shader) {
     return 0;
 }
 
-int load_model(const char *path) {
+int load_model_to_object(const char *path, struct object *obj) {
     const struct aiScene *scene = aiImportFile(path, aiProcess_Triangulate);
 
     if (scene == NULL) {
         return -1;
     }
-
-    // allocate enough memory
-    vertices = (float *) malloc(1);
 
     for (int mesh_index = 0; mesh_index < scene->mNumMeshes; mesh_index++) {
         struct aiMesh *mesh = scene->mMeshes[mesh_index];
@@ -104,43 +126,43 @@ int load_model(const char *path) {
         // fetch vertices
         for (int vertex_index = 0; vertex_index < mesh->mNumVertices; vertex_index++) {
             struct aiVector3D *vertex = &(mesh->mVertices[vertex_index]);
-            long start = vertices_num*3;
+            long start = obj->vertices_num*3;
 
-            vertices_num++;
-            vertices = (float *) realloc(vertices, vertices_num*3*sizeof(float));
-            if (vertices == NULL) {
+            obj->vertices_num++;
+            obj->vertices = (float *) realloc(obj->vertices, obj->vertices_num*3*sizeof(float));
+            if (obj->vertices == NULL) {
                 return -1;
             }
 
-            memcpy(&vertices[start], vertex, sizeof(float)*3);
+            memcpy(&obj->vertices[start], vertex, sizeof(float)*3);
         }
 
         // fetch indices
         for (int face_index = 0; face_index < mesh->mNumFaces; face_index++) {
             struct aiFace *face = &(mesh->mFaces[face_index]);
-            long start = indices_num;
+            long start = obj->indices_num;
 
-            indices_num += face->mNumIndices;
-            indices = (unsigned int *) realloc(indices, sizeof(unsigned int)*indices_num);
-            if (indices == NULL) {
+            obj->indices_num += face->mNumIndices;
+            obj->indices = (unsigned int *) realloc(obj->indices, sizeof(unsigned int)*obj->indices_num);
+            if (obj->indices == NULL) {
                 return -1;
             }
 
-            memcpy(&indices[start], face->mIndices, sizeof(unsigned int)*face->mNumIndices);
+            memcpy(&obj->indices[start], face->mIndices, sizeof(unsigned int)*face->mNumIndices);
         }
 
         // fetch normals
         for (int normal_index = 0; normal_index < mesh->mNumVertices; normal_index++) {
             struct aiVector3D *normal = &(mesh->mNormals[normal_index]);
-            long start = normals_num*3;
+            long start = obj->normals_num*3;
 
-            normals_num++;
-            normals = (float *) realloc(normals, normals_num*3*sizeof(float));
-            if (normals == NULL) {
+            obj->normals_num++;
+            obj->normals = (float *) realloc(obj->normals,obj->normals_num*3*sizeof(float));
+            if (obj->normals == NULL) {
                 return -1;
             }
 
-            memcpy(&normals[start], normal, sizeof(float)*3);
+            memcpy(&obj->normals[start], normal, sizeof(float)*3);
         }
     }
 
@@ -188,48 +210,44 @@ int load_shaders() {
     return 0;
 }
 
-float deg = 0;
-
 void display() {
-    mat4 model;
-    vec3 model_axis = {1.0f, 1.0f, 0.0f};
     mat4 view;
-    vec3 view_translate = {0.0f, 0.0f, -10.0f};
     mat4 projection;
-    GLint viewport[4]; // viewport: x, y, width, height
+    vec3 view_translate = {0.0f, 0.0f, -3.0f};
+    GLint viewport[4]; // viewport: x,y,width,height
 
-    GLint model_uniform;
+    GLint translation_uniform;
+    GLint rotation_uniform;
     GLint view_uniform;
     GLint projection_uniform;
 
     glClearColor(0.13f, 0.13f, 0.13f, 0.0f);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-
     glGetIntegerv(GL_VIEWPORT, viewport);
-
-    glm_mat4_identity(model);
-    glm_rotate(model, glm_rad((float)deg), model_axis);
-    deg += 1;
-
-    model_uniform = glGetUniformLocation(shader_program, "model");
-    glUniformMatrix4fv(model_uniform, 1, GL_FALSE, (float *) model);
+    glUseProgram(shader_program);
 
     glm_mat4_identity(view);
     glm_translate(view, view_translate);
 
-    view_uniform = glGetUniformLocation(shader_program, "view");
-    glUniformMatrix4fv(view_uniform, 1, GL_FALSE, (float *) view);
-
     glm_mat4_identity(projection);
-    glm_perspective(glm_rad(45.0f), (float)viewport[2]/(float)viewport[3], 0.01f, 100.0f, projection);
+    glm_perspective(glm_rad(45.0f), (float) viewport[2]/(float) viewport[3], 0.01f, 100.0f, projection);
 
+    view_uniform = glGetUniformLocation(shader_program, "view");
     projection_uniform = glGetUniformLocation(shader_program, "projection");
+    translation_uniform = glGetUniformLocation(shader_program, "translation");
+    rotation_uniform = glGetUniformLocation(shader_program, "rotation");
+
+    glUniformMatrix4fv(view_uniform, 1, GL_FALSE, (float *) view);
     glUniformMatrix4fv(projection_uniform, 1, GL_FALSE, (float *) projection);
 
-    glUseProgram(shader_program);
-    glBindVertexArray(vao);
+    for (struct object *obj = objects; obj != NULL; obj = obj->next) {
+        glm_translate(obj->translation_matrix, obj->translation_force);
+        glUniformMatrix4fv(translation_uniform, 1, GL_FALSE, (float *) obj->translation_matrix);
+        glUniformMatrix4fv(rotation_uniform, 1, GL_FALSE, (float *) obj->rotation_matrix);
 
-    glDrawElements(GL_TRIANGLES, indices_num, GL_UNSIGNED_INT, (void *) 0);
+        glBindVertexArray(obj->vao);
+        glDrawElements(GL_TRIANGLES, obj->indices_num, GL_UNSIGNED_INT, (void *) 0);
+    }
 
     glutSwapBuffers();
     glutPostRedisplay();
@@ -257,48 +275,73 @@ void keyboard(unsigned char key, int x, int y) {
     }
 }
 
-int setup() {
-    if (load_shaders() != 0) {
-        fprintf(stderr, "Error: loading shaders\n");
-        return -1;
+void setup() {
+    for (struct object *obj = objects; obj != NULL; obj = obj->next) {
+        glGenVertexArrays(1, &obj->vao);
+        glGenBuffers(1, &obj->vbo);
+        glGenBuffers(1, &obj->ebo);
+        glGenBuffers(1, &obj->nbo);
+
+        glBindVertexArray(obj->vao);
+
+        glBindBuffer(GL_ARRAY_BUFFER,obj->vbo);
+        glBufferData(GL_ARRAY_BUFFER,obj->vertices_num*3*sizeof(float),obj->vertices, GL_STATIC_DRAW);
+
+        glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3*sizeof(float), (void *) 0);
+        glEnableVertexAttribArray(0);
+
+        glBindBuffer(GL_ARRAY_BUFFER, obj->nbo);
+        glBufferData(GL_ARRAY_BUFFER, obj->normals_num*3*sizeof(float), obj->normals, GL_STATIC_DRAW);
+
+        glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 3*sizeof(float), (void *) 0);
+        glEnableVertexAttribArray(1);
+
+        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER,obj->ebo);
+        glBufferData(GL_ELEMENT_ARRAY_BUFFER,obj->indices_num*sizeof(unsigned int),obj->indices, GL_STATIC_DRAW);
+
+        glBindVertexArray(0);
+        glBindBuffer(GL_ARRAY_BUFFER, 0);
+        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
     }
-
-    if (load_model("assets/models/sphere.obj") == -1) {
-        fprintf(stderr, "Error: loading model\n");
-        return -1;
-    }
-
-    glGenVertexArrays(1, &vao);
-    glGenBuffers(1, &vbo);
-    glGenBuffers(1, &ebo);
-    glGenBuffers(1, &nbo);
-
-    return 0;
-}
-
-void post_setup() {
-    glBindVertexArray(vao);
-
-    glBindBuffer(GL_ARRAY_BUFFER, vbo);
-    glBufferData(GL_ARRAY_BUFFER, 3*vertices_num*sizeof(float), vertices, GL_STATIC_DRAW);
-
-    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*) 0);
-    glEnableVertexAttribArray(0);
-
-    glBindBuffer(GL_ARRAY_BUFFER, nbo);
-    glBufferData(GL_ARRAY_BUFFER, 3*normals_num*sizeof(float), normals, GL_STATIC_DRAW);
-
-    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*) 0);
-    glEnableVertexAttribArray(1);
-
-    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ebo);
-    glBufferData(GL_ELEMENT_ARRAY_BUFFER, indices_num*sizeof(unsigned int), indices, GL_STATIC_DRAW);
-
-
-    glBindVertexArray(0);
-    glBindBuffer(GL_ARRAY_BUFFER, 0);
 
     glEnable(GL_DEPTH_TEST);
+}
+
+struct object *create_object(float mass, const char *model) {
+    struct object *new_object = (struct object *) malloc(sizeof(struct object));
+
+    if (new_object == NULL) {
+        return NULL;
+    }
+
+    new_object->mass = mass;
+    glm_mat4_identity(new_object->translation_matrix);
+    glm_mat4_identity(new_object->rotation_matrix);
+    new_object->vertices_num = 0;
+    new_object->indices_num = 0;
+    new_object->normals_num = 0;
+    new_object->vertices = NULL;
+    new_object->indices = NULL;
+    new_object->normals = NULL;
+    new_object->next = NULL;
+
+    if (load_model_to_object(model, new_object) == -1) {
+        return NULL;
+    }
+
+    if (objects == NULL) {
+        objects = new_object;
+        return new_object;
+    }
+
+    struct object *obj = objects;
+    while (obj->next != NULL) {
+        obj = obj->next;
+    }
+
+    obj->next = new_object;
+
+    return new_object;
 }
 
 int main(int argc, char **argv) {
@@ -316,12 +359,28 @@ int main(int argc, char **argv) {
     glutKeyboardFunc(&keyboard);
     glutDisplayFunc(&display);
 
-    if (setup() == -1) {
-        fprintf(stderr, "Error: Failed to setup\n");
-        return -1;
+    if (load_shaders() != 0) {
+        fprintf(stderr, "Error: loading shaders\n");
+        return EXIT_FAILURE;
     }
 
-    post_setup();
+    // objects
+    struct object *sphere = create_object(10, "assets/models/sphere.obj");
+    struct object *kub = create_object(10, "assets/models/kub.obj");
+
+    vec4 sphere_translate = {-8.0f, 2.0f, -10.0f};
+    glm_translate(sphere->translation_matrix, sphere_translate);
+
+    float force[] = {0.05f, -0.02f, 0.0f};
+    glm_vec3_make(force, sphere->translation_force);
+
+    vec4 kub_translate = {10.0f, -2.0f, -15.0f};
+    glm_translate(kub->translation_matrix, kub_translate);
+
+    vec3 kub_rotation_axis = {1.0f, 0.5f, 0.0f};
+    glm_rotate(kub->rotation_matrix, glm_rad(45.0f), kub_rotation_axis);
+
+    setup();
 
     glutMainLoop();
 
