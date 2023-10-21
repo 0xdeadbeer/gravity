@@ -1,3 +1,4 @@
+#include <time.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
@@ -8,10 +9,13 @@
 #include <assimp/scene.h>
 #include <assimp/postprocess.h>
 
-unsigned int vao;
-unsigned int vbo;
-unsigned int ebo;
-unsigned int nbo;
+float frand48(void) {
+    return (float) rand() / (float) (RAND_MAX + 1.0);
+}
+
+float fov = 45.0f; // default fov
+float fov_change = 1.0f;
+
 unsigned int shader_program;
 unsigned int vertex_shader;
 unsigned int fragment_shader;
@@ -20,27 +24,13 @@ unsigned int fragment_shader;
 const char *vertex_shader_location = "assets/shaders/shader.vert";
 const char *fragment_shader_location = "assets/shaders/shader.frag";
 
-// GPU data
-float *vertices = NULL;
-unsigned int *indices = NULL;
-float *normals = NULL;
-long vertices_num = 0;
-long indices_num = 0;
-long normals_num = 0;
-
-// Camera / LookAt
-vec3 camera_position;
-vec3 world_origin;
-vec3 up;
-vec3 right;
-vec3 forward;
-
 // structs
 struct object {
-    mat4 rotation_matrix;
-    mat4 translation_matrix;
-    vec3 translation_force;
-    vec3 rotation_force;
+    vec4 translation_force;
+    vec4 rotation_force;
+    vec4 position;
+    vec4 rotation;
+    vec3 color;
     float mass;
     void *next;
 
@@ -210,6 +200,47 @@ int load_shaders() {
     return 0;
 }
 
+void calculate_gravity(struct object *src, struct object *target, vec3 force) {
+    vec4 tmp;
+
+    glm_vec4_sub(target->position, src->position, tmp);
+
+    vec3 distance;
+    glm_vec3(tmp, distance);
+
+    float h1 = sqrt((distance[0] * distance[0]) + (distance[1] * distance[1]));
+    float h2 = sqrt((h1 * h1) + (distance[2] * distance[2]));
+
+    float g = 6.67f * 1e-11f;
+    float top = g * src->mass * target->mass;
+    vec3 top_vec = {top, top, top};
+    float mass_area = target->mass;
+
+    for (int i = 0; i < 3; i++) {
+        distance[i] = (distance[i] * distance[i] * distance[i]);
+
+        /*if (distance[i] > -0.1 && distance[i] < 0) {
+            distance[i] = -0.1f;
+        }
+
+        if (distance[i] < 0.1 && distance[i] > 0) {
+            distance[i] = 0.1f;
+        }*/
+    }
+
+    for (int i = 0; i < 3; i++) {
+        if (distance[i] == 0) {
+            force[i] = 0.0f;
+            continue;
+        }
+
+        //force[i] = mass_area * (top_vec[i] / (distance[i] + (1 / (target->mass / mass_area))));
+        force[i] = (top_vec[i] / (h2 / (target->position[i] - src->position[i])));
+        //force[i] = (top_vec[i] / distance[i]);
+
+    }
+}
+
 void display() {
     mat4 view;
     mat4 projection;
@@ -220,6 +251,7 @@ void display() {
     GLint rotation_uniform;
     GLint view_uniform;
     GLint projection_uniform;
+    GLint color_uniform;
 
     glClearColor(0.13f, 0.13f, 0.13f, 0.0f);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
@@ -230,7 +262,7 @@ void display() {
     glm_translate(view, view_translate);
 
     glm_mat4_identity(projection);
-    glm_perspective(glm_rad(45.0f), (float) viewport[2]/(float) viewport[3], 0.01f, 100.0f, projection);
+    glm_perspective(glm_rad(fov), (float) viewport[2]/(float) viewport[3], 0.01f, 10000.0f, projection);
 
     view_uniform = glGetUniformLocation(shader_program, "view");
     projection_uniform = glGetUniformLocation(shader_program, "projection");
@@ -241,9 +273,38 @@ void display() {
     glUniformMatrix4fv(projection_uniform, 1, GL_FALSE, (float *) projection);
 
     for (struct object *obj = objects; obj != NULL; obj = obj->next) {
-        glm_translate(obj->translation_matrix, obj->translation_force);
-        glUniformMatrix4fv(translation_uniform, 1, GL_FALSE, (float *) obj->translation_matrix);
-        glUniformMatrix4fv(rotation_uniform, 1, GL_FALSE, (float *) obj->rotation_matrix);
+        mat4 translation_matrix;
+        glm_mat4_identity(translation_matrix);
+
+
+        // calculate gravity
+        for (struct object *target = objects; target != NULL; target = target->next) {
+            if (target == obj) {
+                continue;
+            }
+
+            vec3 force;
+            glm_vec3_zero(force);
+            calculate_gravity(obj, target, force);
+            //glm_vec4_add(obj->position, *force, obj->position);
+            vec4 force_new;
+            for (int i = 0; i < 3; i++) {
+                force_new[i] = force[i];
+            }
+            force_new[3] = 0.0f;
+
+            float n = obj->mass;
+            vec4 scaler = {n,n,n,1.0f};
+            glm_vec4_div(force_new, scaler, force_new);
+            glm_vec4_add(force_new, obj->translation_force, obj->translation_force);
+            //glm_vec4_add(force_new, obj->position, obj->position);
+        }
+
+        glm_vec4_add(obj->position, obj->translation_force, obj->position);
+        glm_translate(translation_matrix, obj->position);
+
+        glUniformMatrix4fv(translation_uniform, 1, GL_FALSE, (float *) translation_matrix);
+        glUniform3fv(color_uniform, 1, (float *) obj->color);
 
         glBindVertexArray(obj->vao);
         glDrawElements(GL_TRIANGLES, obj->indices_num, GL_UNSIGNED_INT, (void *) 0);
@@ -269,6 +330,19 @@ void keyboard(unsigned char key, int x, int y) {
 
             fprintf(stdout, "Status: successfully reloaded shaders\n");
 
+            break;
+        default:
+            break;
+    }
+}
+
+void mouse(int button, int state, int x, int y) {
+    switch (button) {
+        case 3:
+            fov -= fov_change;
+            break;
+        case 4:
+            fov += fov_change;
             break;
         default:
             break;
@@ -307,6 +381,7 @@ void setup() {
     glEnable(GL_DEPTH_TEST);
 }
 
+
 struct object *create_object(float mass, const char *model) {
     struct object *new_object = (struct object *) malloc(sizeof(struct object));
 
@@ -315,8 +390,10 @@ struct object *create_object(float mass, const char *model) {
     }
 
     new_object->mass = mass;
-    glm_mat4_identity(new_object->translation_matrix);
-    glm_mat4_identity(new_object->rotation_matrix);
+    glm_vec4_one(new_object->position);
+    glm_vec4_one(new_object->rotation);
+    glm_vec4_zero(new_object->translation_force);
+    glm_vec4_zero(new_object->rotation_force);
     new_object->vertices_num = 0;
     new_object->indices_num = 0;
     new_object->normals_num = 0;
@@ -324,6 +401,13 @@ struct object *create_object(float mass, const char *model) {
     new_object->indices = NULL;
     new_object->normals = NULL;
     new_object->next = NULL;
+    glm_vec3_one(new_object->color);
+
+    // choose random color
+    for (int i = 0; i < 3; i++) {
+        new_object->color[i] = frand48();
+        fprintf(stdout, "New color part set: %f\n", new_object->color[i]);
+    }
 
     if (load_model_to_object(model, new_object) == -1) {
         return NULL;
@@ -345,6 +429,8 @@ struct object *create_object(float mass, const char *model) {
 }
 
 int main(int argc, char **argv) {
+    srandom(time(NULL));
+
     glutInit(&argc, argv);
     glutInitDisplayMode(GLUT_RGB | GLUT_DOUBLE);
     glutCreateWindow("Simple Space Time Simulator");
@@ -357,6 +443,7 @@ int main(int argc, char **argv) {
     fprintf(stdout, "Status: using with GLEW %s\n", glewGetString(GLEW_VERSION));
 
     glutKeyboardFunc(&keyboard);
+    glutMouseFunc(&mouse);
     glutDisplayFunc(&display);
 
     if (load_shaders() != 0) {
@@ -365,20 +452,55 @@ int main(int argc, char **argv) {
     }
 
     // objects
-    struct object *sphere = create_object(10, "assets/models/sphere.obj");
-    struct object *kub = create_object(10, "assets/models/kub.obj");
+    /*for (int i = 0; i < 100; i++) {
+        struct object *planet = create_object(rand()%100, "assets/models/sphere.obj");
 
-    vec4 sphere_translate = {-8.0f, 2.0f, -10.0f};
-    glm_translate(sphere->translation_matrix, sphere_translate);
+        int x_limit = 50;
+        int y_limit = 50;
+        float random_x = (float) -x_limit+(rand() % (x_limit*2));
+        float random_y = (float) -y_limit+(rand() % (y_limit*2));
 
-    float force[] = {0.05f, -0.02f, 0.0f};
-    glm_vec3_make(force, sphere->translation_force);
+        // give random force as well
+        vec3 initial_boost;
+        glm_vec3_zero(initial_boost);
 
-    vec4 kub_translate = {10.0f, -2.0f, -15.0f};
-    glm_translate(kub->translation_matrix, kub_translate);
+        for (int j = 0; j < 3; j++) {
+            initial_boost[j] = 1/(rand() % 2);
+        }
 
-    vec3 kub_rotation_axis = {1.0f, 0.5f, 0.0f};
-    glm_rotate(kub->rotation_matrix, glm_rad(45.0f), kub_rotation_axis);
+        vec4 planet_position = {random_x, random_y, (float) -1000.0f, 0.0f};
+        glm_vec4_add(planet->position, planet_position, planet->position);
+        glm_vec3_add(planet->translation_force, initial_boost, planet->translation_force);
+    }*/
+    float distance = -1000.0f;
+    struct object *a = create_object(1000000000.0f, "assets/models/sphere.obj");
+    struct object *b = create_object(10000000.0f, "assets/models/sphere.obj");
+//    struct object *c = create_object(1000000000.0f, "assets/models/sphere.obj");
+    //struct object *d = create_object(10.0f, "assets/models/sphere.obj");
+
+    vec4 a_pos = {0.0f, 0.0f, distance, 0.0f};
+    glm_vec4_add(a->position, a_pos, a->position);
+
+    vec4 b_pos = {50.0f, -50.0f, distance, 0.0f};
+    glm_vec4_add(b->position, b_pos, b->position);
+
+//    vec4 c_pos = {0.0f, -20.0f, distance, 0.0f};
+//    glm_vec4_add(c->position, c_pos, c->position);
+
+    //vec4 d_pos = {0.0f, 20.0f, distance, 0.0f};
+    //glm_vec4_add(d->position, d_pos, d->position);
+
+    //struct object *cube = create_object(1000.0f, "assets/models/kub.obj");
+    //vec4 cube_location = {-2.0f, 0.0f, -10.0f, 0.0f};
+    //glm_vec4_add(cube->position, cube_location, cube->position);
+
+    float n = 0.1f;
+
+    //vec3 a_boost = {10*n, 0.0f, 0.0f};
+    //glm_vec3_add(a->translation_force, a_boost, a->translation_force);
+
+    vec3 b_boost = {-100*n, 0.0f, 0.0f};
+    glm_vec3_add(b->translation_force, b_boost, b->translation_force);
 
     setup();
 
