@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.25)
-project(ssts C)
+project(gravity C)
 
 set(SOURCE_FILES main.c)
 set(HEADER_FILES )
@@ -12,7 +12,7 @@ add_custom_target(assets ALL
         ${PROJECT_BINARY_DIR}/assets
         COMMENT "Copying assets to build folder")
 
-add_dependencies(ssts assets)
+add_dependencies(gravity assets)
 
 # We need a CMAKE_DIR with some code to find external dependencies
 set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} "${CMAKE_SOURCE_DIR}/cmake/")
