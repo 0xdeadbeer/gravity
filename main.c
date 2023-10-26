@@ -10,7 +10,7 @@
 #include <assimp/scene.h>
 #include <assimp/postprocess.h>
 
-#define MAX_PATHS  250
+#define MAX_PATHS  100
 
 float frand48(void) {
     float number = (float) rand() / (float) (RAND_MAX + 1.0);
@@ -33,6 +33,8 @@ float camera_sensitivity = 0.01f;
 float movement_speed = 2.0f;
 GLint screen_viewport[4]; // viewport: x,y,width,height
 
+int toggle_tracing = 0; // true or false
+
 unsigned int shader_program;
 unsigned int vertex_shader;
 unsigned int fragment_shader;
@@ -53,7 +55,6 @@ struct object {
 
     float *paths;
     int paths_num;
-    int paths_index;
     int paths_max;
 
     float *vertices;
@@ -227,30 +228,20 @@ int load_shaders() {
 
 void calculate_gravity(struct object *src, struct object *target, vec3 force) {
     vec4 tmp;
-
     glm_vec4_sub(target->position, src->position, tmp);
 
     vec3 distance;
     glm_vec3(tmp, distance);
 
-    float h1 = sqrt((distance[0] * distance[0]) + (distance[1] * distance[1]));
-    float h2 = sqrt((h1 * h1) + (distance[2] * distance[2]));
+    float distance_xy = sqrt((distance[0] * distance[0]) + (distance[1] * distance[1]));
+    float distance_xyz = sqrt((distance_xy * distance_xy) + (distance[2] * distance[2]));
+    float force_scale = 4.0f;
 
     float g = 6.67f * 1e-11f;
     float top = g * src->mass * target->mass;
-    vec3 top_vec = {top, top, top};
-    float mass_area = target->mass;
 
     for (int i = 0; i < 3; i++) {
         distance[i] = (distance[i] * distance[i] * distance[i]);
-
-        /*if (distance[i] > -0.1 && distance[i] < 0) {
-            distance[i] = -0.1f;
-        }
-
-        if (distance[i] < 0.1 && distance[i] > 0) {
-            distance[i] = 0.1f;
-        }*/
     }
 
     for (int i = 0; i < 3; i++) {
@@ -259,10 +250,7 @@ void calculate_gravity(struct object *src, struct object *target, vec3 force) {
             continue;
         }
 
-        //force[i] = mass_area * (top_vec[i] / (distance[i] + (1 / (target->mass / mass_area))));
-        force[i] = (top_vec[i] / (h2 / (target->position[i] - src->position[i]))) * 4;
-        //force[i] = (top_vec[i] / distance[i]);
-
+        force[i] = (top / (distance_xyz / (target->position[i] - src->position[i]))) * force_scale;
     }
 }
 
@@ -332,7 +320,7 @@ void display() {
             vec3 force;
             glm_vec3_zero(force);
             calculate_gravity(obj, target, force);
-            //glm_vec4_add(obj->position, *force, obj->position);
+
             vec4 force_new;
             for (int i = 0; i < 3; i++) {
                 force_new[i] = force[i];
@@ -342,15 +330,17 @@ void display() {
             float n = obj->mass;
             vec4 scaler = {n,n,n,1.0f};
             glm_vec4_div(force_new, scaler, force_new);
+
             glm_vec4_add(force_new, obj->translation_force, obj->translation_force);
-            //glm_vec4_add(force_new, obj->position, obj->position);
         }
 
         glm_vec4_add(obj->position, obj->translation_force, obj->position);
 
         // record path
-        if (record_path(obj) == -1) {
-            exit(EXIT_FAILURE);
+        if (toggle_tracing == 1) {
+            if (record_path(obj) == -1) {
+                exit(EXIT_FAILURE);
+            }
         }
 
         glm_translate(translation_matrix, obj->position);
@@ -430,6 +420,20 @@ void keyboard(unsigned char key, int x, int y) {
             glm_vec3_add(camera_pos, front_scalar, camera_pos);
             break;
         }
+        case 't':
+        case 'T':
+            toggle_tracing = !toggle_tracing;
+            if (toggle_tracing == 0) {
+                break;
+            }
+
+            // remove all the recorded paths of objects
+            for (struct object *obj = objects; obj != NULL; obj = obj->next) {
+                obj->paths_num=0;
+                free(obj->paths);
+                obj->paths = NULL;
+            }
+            break;
         default:
             break;
     }
@@ -438,9 +442,17 @@ void keyboard(unsigned char key, int x, int y) {
 void mouse(int button, int state, int x, int y) {
     switch (button) {
         case 3:
+            if (fov-fov_change < 0.0f) {
+                break;
+            }
+
             fov -= fov_change;
             break;
         case 4:
+            if (fov+fov_change > 180.0f) {
+                break;
+            }
+
             fov += fov_change;
             break;
         default:
@@ -457,7 +469,6 @@ void mouse_motion(int x, int y) {
 
     warped_pointer = 1;
     glutWarpPointer((screen_viewport[2]/2), screen_viewport[3]/2);
-    fprintf(stdout, "Position of mouse %d,%d\n", x, y);
     float offset_x = (float) (x - (screen_viewport[2]/2)) * camera_sensitivity;
     float offset_y = (float) (y - (screen_viewport[3]/2)) * camera_sensitivity;
 
@@ -538,14 +549,12 @@ struct object *create_object(float mass, const char *model) {
     new_object->next = NULL;
     new_object->paths = NULL;
     new_object->paths_num = 0;
-    new_object->paths_index = 0;
     new_object->paths_max = MAX_PATHS;
     glm_vec3_one(new_object->color);
 
     // choose random color
     for (int i = 0; i < 3; i++) {
         new_object->color[i] = 0.5 + (fabs(frand48()) / 2);
-        fprintf(stdout, "New color part set: %f\n", new_object->color[i]);
     }
 
     if (load_model_to_object(model, new_object) == -1) {
@@ -592,34 +601,30 @@ int main(int argc, char **argv) {
     }
 
     // objects
-    struct object *a = create_object(1000.0f, "assets/models/sphere.obj");
+    struct object *a = create_object(1.0f, "assets/models/sphere.obj");
+    struct object *b = create_object(1.0f, "assets/models/sphere.obj");
     struct object *c = create_object(10000000.0f, "assets/models/sphere.obj");
-    struct object *d = create_object(100000.0f, "assets/models/sphere.obj");
-    struct object *e = create_object(6969699.0f, "assets/models/sphere.obj");
     float distance = -200.0f;
 
-    vec4 a_pos = {0.0f, 50.0f, distance, 0.0f};
-    glm_vec4_add(a->position, a_pos, a->position);
+//    vec4 a_pos = {0.0f, 50.0f, distance, 0.0f};
+//    glm_vec4_add(a->position, a_pos, a->position);
+
+    vec4 b_pos = {0.0f, -50.0f, -150.0f, 0.0f};
+    glm_vec4_add(b->position, b_pos, b->position);
 
     vec4 c_pos = {0.0f, -20.0f, distance, 0.0f};
     glm_vec4_add(c->position, c_pos, c->position);
 
-    vec4 d_pos = {20.0f, -100.0f, distance, 0.0f};
-    glm_vec4_add(d->position, d_pos, d->position);
-
-    vec4 e_pos = {-50.0f, 100.0f, distance, 0.0f};
-    glm_vec4_add(e->position, e_pos, e->position);
-
     float n = 0.05f;
 
-    vec3 a_boost = {-10*n, 0.0f, 0.0f};
-    glm_vec3_add(a->translation_force, a_boost, a->translation_force);
+//    vec3 a_boost = {-10*n, 0.0f, 0.0f};
+//    glm_vec3_add(a->translation_force, a_boost, a->translation_force);
 
-    vec3 d_boost = {-2*n, -5*n, 0.0f};
-    glm_vec3_add(d->translation_force, d_boost, d->translation_force);
+    vec3 b_boost = {-10*n, 0.0f, -10*n};
+    glm_vec3_add(b->translation_force, b_boost, b->translation_force);
 
-    vec3 e_boost = {5*n, 5*n, 0.0f};
-    glm_vec3_add(e->translation_force, e_boost, e->translation_force);
+    vec3 c_boost = {n, n, n};
+    glm_vec3_add(c->translation_force, c_boost, c->translation_force);
 
     setup();
 

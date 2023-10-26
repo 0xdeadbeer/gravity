@@ -15,6 +15,8 @@ Goals and features:
   - [ ] Toggle object tracing
 - [ ] Grid
   - [ ] Toggle Grid
+- [ ] Scaling up/down objects
+- [ ] Locking camera view to an object
 - [ ] File format for importing scenes
 - [ ] Collision 
 - [ ] Soft-bodies and structures 
