@@ -17,5 +17,5 @@ void main() {
 
     vec4 diffuse = diff * light_color;
 
-    output = color + diffuse;
+    output = color;
 }

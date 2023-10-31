@@ -63,6 +63,7 @@ struct object {
     long vertices_num;
     long indices_num;
     long normals_num;
+    float scale;
 
     unsigned int vao; // array object for the actual object
     unsigned int vbo; // buffer for vertices
@@ -286,6 +287,7 @@ void display() {
     GLint view_uniform;
     GLint projection_uniform;
     GLint color_uniform;
+    GLint scale_uniform;
 
     glClearColor(0.13f, 0.13f, 0.13f, 0.0f);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
@@ -303,6 +305,7 @@ void display() {
     view_uniform = glGetUniformLocation(shader_program, "view");
     projection_uniform = glGetUniformLocation(shader_program, "projection");
     translation_uniform = glGetUniformLocation(shader_program, "translation");
+    scale_uniform = glGetUniformLocation(shader_program, "scale");
 
     glUniformMatrix4fv(view_uniform, 1, GL_FALSE, (float *) view);
     glUniformMatrix4fv(projection_uniform, 1, GL_FALSE, (float *) projection);
@@ -347,6 +350,7 @@ void display() {
 
         glUniformMatrix4fv(translation_uniform, 1, GL_FALSE, (float *) translation_matrix);
         glUniform3fv(color_uniform, 1, (float *) obj->color);
+        glUniform1f(scale_uniform, obj->scale);
 
         glBindVertexArray(obj->vao);
         glDrawElements(GL_TRIANGLES, obj->indices_num, GL_UNSIGNED_INT, (void *) 0);
@@ -492,7 +496,8 @@ void mouse_motion(int x, int y) {
 
 void setup() {
     // setup default mouse position
-    glGetIntegerv(GL_VIEWPORT_BIT, screen_viewport);
+    glGetIntegerv(GL_VIEWPORT, screen_viewport);
+    glutWarpPointer(screen_viewport[2]/2, screen_viewport[3]/2);
 
     for (struct object *obj = objects; obj != NULL; obj = obj->next) {
         glGenVertexArrays(1, &obj->vao);
@@ -543,6 +548,7 @@ struct object *create_object(float mass, const char *model) {
     new_object->vertices_num = 0;
     new_object->indices_num = 0;
     new_object->normals_num = 0;
+    new_object->scale = 1.0f;
     new_object->vertices = NULL;
     new_object->indices = NULL;
     new_object->normals = NULL;
@@ -554,7 +560,7 @@ struct object *create_object(float mass, const char *model) {
 
     // choose random color
     for (int i = 0; i < 3; i++) {
-        new_object->color[i] = 0.5 + (fabs(frand48()) / 2);
+        new_object->color[i] = 0.5f + (fabs(frand48()) / 2);
     }
 
     if (load_model_to_object(model, new_object) == -1) {
@@ -581,7 +587,8 @@ int main(int argc, char **argv) {
 
     glutInit(&argc, argv);
     glutInitDisplayMode(GLUT_RGB | GLUT_DOUBLE);
-    glutCreateWindow("Simple Space Time Simulator");
+    glutCreateWindow("gravity");
+
     GLenum err = glewInit();
     if (err != GLEW_OK) {
         fprintf(stderr, "Error: %s\n", glewGetErrorString(err));
@@ -603,28 +610,26 @@ int main(int argc, char **argv) {
     // objects
     struct object *a = create_object(1.0f, "assets/models/sphere.obj");
     struct object *b = create_object(1.0f, "assets/models/sphere.obj");
-    struct object *c = create_object(10000000.0f, "assets/models/sphere.obj");
+    //struct object *c = create_object(1.0f, "assets/models/sphere.obj");
     float distance = -200.0f;
 
 //    vec4 a_pos = {0.0f, 50.0f, distance, 0.0f};
 //    glm_vec4_add(a->position, a_pos, a->position);
+    vec4 a_pos = {0.0f, -40.0f, -150.0f, 0.0f};
+    glm_vec4_add(a->position, a_pos, a->position);
 
     vec4 b_pos = {0.0f, -50.0f, -150.0f, 0.0f};
     glm_vec4_add(b->position, b_pos, b->position);
 
-    vec4 c_pos = {0.0f, -20.0f, distance, 0.0f};
-    glm_vec4_add(c->position, c_pos, c->position);
+    //vec4 c_pos = {0.0f, -20.0f, distance, 0.0f};
+    //glm_vec4_add(c->position, c_pos, c->position);
 
     float n = 0.05f;
 
 //    vec3 a_boost = {-10*n, 0.0f, 0.0f};
 //    glm_vec3_add(a->translation_force, a_boost, a->translation_force);
 
-    vec3 b_boost = {-10*n, 0.0f, -10*n};
-    glm_vec3_add(b->translation_force, b_boost, b->translation_force);
-
-    vec3 c_boost = {n, n, n};
-    glm_vec3_add(c->translation_force, c_boost, c->translation_force);
+    b->scale = 2.0f;
 
     setup();
 

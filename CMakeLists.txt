@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.25)
 project(gravity C)
 
-set(SOURCE_FILES main.c)
+set(SOURCE_FILES gravity.c)
 set(HEADER_FILES )
 
 add_executable(${PROJECT_NAME} ${HEADER_FILES} ${SOURCE_FILES})
