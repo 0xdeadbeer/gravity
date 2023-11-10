@@ -13,8 +13,8 @@ Goals and features:
 - [x] Law of gravitation 
 - [x] Object tracing
   - [x] Toggle object tracing
-- [x] Grid
-  - [x] Toggle Grid
+- [ ] Grid
+  - [ ] Toggle Grid
 - [x] Scaling up/down objects
 - [x] Locking camera view to an object
 - [ ] File format for importing scenes
