@@ -12,11 +12,11 @@ Pet project simulator for interactions between matter built off of OpenGL and C.
 Goals and features: 
 - [x] Law of gravitation 
 - [x] Object tracing
-  - [ ] Toggle object tracing
-- [ ] Grid
-  - [ ] Toggle Grid
-- [ ] Scaling up/down objects
-- [ ] Locking camera view to an object
+  - [x] Toggle object tracing
+- [x] Grid
+  - [x] Toggle Grid
+- [x] Scaling up/down objects
+- [x] Locking camera view to an object
 - [ ] File format for importing scenes
 - [ ] Collision 
 - [ ] Soft-bodies and structures 

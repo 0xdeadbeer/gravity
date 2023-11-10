@@ -1,6 +1,7 @@
 #include <time.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <unistd.h>
 #include <math.h>
 #include <string.h>
 #include <GL/glew.h>
@@ -10,7 +11,7 @@
 #include <assimp/scene.h>
 #include <assimp/postprocess.h>
 
-#define MAX_PATHS  100
+#define MAX_PATHS  1500
 
 float frand48(void) {
     float number = (float) rand() / (float) (RAND_MAX + 1.0);
@@ -21,27 +22,6 @@ float frand48(void) {
 
     return number;
 }
-
-float fov = 80.0f; // default fov
-float fov_change = 1.0f;
-vec3 camera_pos = { 0.0f, 0.0f, 100.0f, };
-vec3 camera_front = { 0.0f, 0.0f, -1.0f };
-vec3 camera_up = { 0.0f, 1.0f, 0.0f };
-float camera_yaw; // x rotation
-float camera_pitch; // y rotation
-float camera_sensitivity = 0.01f;
-float movement_speed = 2.0f;
-GLint screen_viewport[4]; // viewport: x,y,width,height
-
-int toggle_tracing = 0; // true or false
-
-unsigned int shader_program;
-unsigned int vertex_shader;
-unsigned int fragment_shader;
-
-// shaders
-const char *object_vertex_shader_location = "assets/shaders/shader.vert";
-const char *object_fragment_shader_location = "assets/shaders/shader.frag";
 
 // structs
 struct object {
@@ -73,6 +53,31 @@ struct object {
     unsigned int pvao; // array object for paths
     unsigned int pbo; // buffer for paths
 };
+
+float fov = 80.0f; // default fov
+float fov_change = 1.0f;
+vec3 camera_pos = { 0.0f, 0.0f, 100.0f };
+vec3 camera_front = { 0.0f, 0.0f, -1.0f };
+vec3 camera_up = { 0.0f, 1.0f, 0.0f }; 
+struct object *camera_lock = NULL; // is camera locked to any object?
+float camera_yaw; // x rotation
+float camera_pitch; // y rotation
+float camera_sensitivity = 0.01f;
+float movement_speed = 2.0f;
+float time_speed = 33.0f;
+float time_speed_change = 1.0f;
+
+GLint screen_viewport[4]; // viewport: x,y,width,height
+
+int toggle_tracing = 0; // true or false
+
+unsigned int shader_program;
+unsigned int vertex_shader;
+unsigned int fragment_shader;
+
+// shaders
+const char *object_vertex_shader_location = "assets/shaders/shader.vert";
+const char *object_fragment_shader_location = "assets/shaders/shader.frag";
 
 // global objects information
 struct object* objects = NULL;
@@ -137,8 +142,7 @@ int load_model_to_object(const char *path, struct object *obj) {
 
     for (int mesh_index = 0; mesh_index < scene->mNumMeshes; mesh_index++) {
         struct aiMesh *mesh = scene->mMeshes[mesh_index];
-        fprintf(stdout, "Number of vertices in mesh %d: %d\n", mesh_index, mesh->mNumVertices);
-
+        
         // fetch vertices
         for (int vertex_index = 0; vertex_index < mesh->mNumVertices; vertex_index++) {
             struct aiVector3D *vertex = &(mesh->mVertices[vertex_index]);
@@ -279,6 +283,8 @@ int record_path(struct object *obj) {
     return 0;
 }
 
+
+
 void display() {
     mat4 view;
     mat4 projection;
@@ -305,6 +311,7 @@ void display() {
     view_uniform = glGetUniformLocation(shader_program, "view");
     projection_uniform = glGetUniformLocation(shader_program, "projection");
     translation_uniform = glGetUniformLocation(shader_program, "translation");
+    color_uniform = glGetUniformLocation(shader_program, "color");
     scale_uniform = glGetUniformLocation(shader_program, "scale");
 
     glUniformMatrix4fv(view_uniform, 1, GL_FALSE, (float *) view);
@@ -339,6 +346,11 @@ void display() {
 
         glm_vec4_add(obj->position, obj->translation_force, obj->position);
 
+        // follow object if camera locked 
+        if (camera_lock == obj) {
+            glm_vec3_add(camera_pos, obj->translation_force, camera_pos);
+        }
+
         // record path
         if (toggle_tracing == 1) {
             if (record_path(obj) == -1) {
@@ -349,6 +361,7 @@ void display() {
         glm_translate(translation_matrix, obj->position);
 
         glUniformMatrix4fv(translation_uniform, 1, GL_FALSE, (float *) translation_matrix);
+
         glUniform3fv(color_uniform, 1, (float *) obj->color);
         glUniform1f(scale_uniform, obj->scale);
 
@@ -365,12 +378,100 @@ void display() {
 
         glm_mat4_identity(translation_matrix);
         glUniformMatrix4fv(translation_uniform, 1, GL_FALSE, (float *) translation_matrix);
+        glUniform1f(scale_uniform, 1.0f);
 
         glDrawArrays(GL_LINE_STRIP, 0, obj->paths_num);
     }
 
     glutSwapBuffers();
     glutPostRedisplay();
+}
+
+void setup() {
+    // setup default mouse position
+    glGetIntegerv(GL_VIEWPORT, screen_viewport);
+    glutWarpPointer(screen_viewport[2]/2, screen_viewport[3]/2);
+
+    for (struct object *obj = objects; obj != NULL; obj = obj->next) {
+        glGenVertexArrays(1, &obj->vao);
+        glGenVertexArrays(1, &obj->pvao);
+        glGenBuffers(1, &obj->vbo);
+        glGenBuffers(1, &obj->ebo);
+        glGenBuffers(1, &obj->nbo);
+        glGenBuffers(1, &obj->pbo);
+
+        glBindVertexArray(obj->vao);
+
+        glBindBuffer(GL_ARRAY_BUFFER,obj->vbo);
+        glBufferData(GL_ARRAY_BUFFER,obj->vertices_num*3*sizeof(float),obj->vertices, GL_STATIC_DRAW);
+
+        glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3*sizeof(float), (void *) 0);
+        glEnableVertexAttribArray(0);
+
+        glBindBuffer(GL_ARRAY_BUFFER, obj->nbo);
+        glBufferData(GL_ARRAY_BUFFER, obj->normals_num*3*sizeof(float), obj->normals, GL_STATIC_DRAW);
+
+        glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 3*sizeof(float), (void *) 0);
+        glEnableVertexAttribArray(1);
+
+        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER,obj->ebo);
+        glBufferData(GL_ELEMENT_ARRAY_BUFFER,obj->indices_num*sizeof(unsigned int),obj->indices, GL_STATIC_DRAW);
+
+        glBindVertexArray(0);
+        glBindBuffer(GL_ARRAY_BUFFER, 0);
+        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
+    }
+
+    glEnable(GL_DEPTH_TEST);
+}
+
+struct object *create_object(float mass, const char *model) {
+    struct object *new_object = (struct object *) malloc(sizeof(struct object));
+
+    if (new_object == NULL) {
+        return NULL;
+    }
+
+    new_object->mass = mass;
+    glm_vec4_one(new_object->position);
+    glm_vec4_one(new_object->rotation);
+    glm_vec4_zero(new_object->translation_force);
+    glm_vec4_zero(new_object->rotation_force);
+    new_object->vertices_num = 0;
+    new_object->indices_num = 0;
+    new_object->normals_num = 0;
+    new_object->scale = 1.0f;
+    new_object->vertices = NULL;
+    new_object->indices = NULL;
+    new_object->normals = NULL;
+    new_object->next = NULL;
+    new_object->paths = NULL;
+    new_object->paths_num = 0;
+    new_object->paths_max = MAX_PATHS;
+    glm_vec3_one(new_object->color);
+
+    // choose random color
+    for (int i = 0; i < 3; i++) {
+        new_object->color[i] = 0.5f + (fabs(frand48()) / 2);
+    }
+
+    if (load_model_to_object(model, new_object) == -1) {
+        return NULL;
+    }
+
+    if (objects == NULL) {
+        objects = new_object;
+        return new_object;
+    }
+
+    struct object *obj = objects;
+    while (obj->next != NULL) {
+        obj = obj->next;
+    }
+
+    obj->next = new_object;
+
+    return new_object;
 }
 
 void keyboard(unsigned char key, int x, int y) {
@@ -438,6 +539,19 @@ void keyboard(unsigned char key, int x, int y) {
                 obj->paths = NULL;
             }
             break;
+        case 'c':
+        case 'C': {
+            struct object *a = create_object(1000000.0f, "assets/models/sphere.obj");
+
+            float n = 0.05f;
+            vec4 a_pos = {frand48() * 100, frand48() * 100, -150.0f, 0.0f};
+            glm_vec4_add(a->position, a_pos, a->position);
+
+            //vec3 a_boost = {-10 * n, 0.0f, 0.0f};
+            //glm_vec3_add(a->translation_force, a_boost, a->translation_force);
+            setup();
+            break;
+        }
         default:
             break;
     }
@@ -464,7 +578,7 @@ void mouse(int button, int state, int x, int y) {
     }
 }
 
-int warped_pointer = 0;
+int warped_pointer = 1; 
 void mouse_motion(int x, int y) {
     if (warped_pointer == 1) {
         warped_pointer = 0;
@@ -494,94 +608,6 @@ void mouse_motion(int x, int y) {
     glm_normalize_to(view_direction, camera_front);
 }
 
-void setup() {
-    // setup default mouse position
-    glGetIntegerv(GL_VIEWPORT, screen_viewport);
-    glutWarpPointer(screen_viewport[2]/2, screen_viewport[3]/2);
-
-    for (struct object *obj = objects; obj != NULL; obj = obj->next) {
-        glGenVertexArrays(1, &obj->vao);
-        glGenVertexArrays(1, &obj->pvao);
-        glGenBuffers(1, &obj->vbo);
-        glGenBuffers(1, &obj->ebo);
-        glGenBuffers(1, &obj->nbo);
-        glGenBuffers(1, &obj->pbo);
-
-        glBindVertexArray(obj->vao);
-
-        glBindBuffer(GL_ARRAY_BUFFER,obj->vbo);
-        glBufferData(GL_ARRAY_BUFFER,obj->vertices_num*3*sizeof(float),obj->vertices, GL_STATIC_DRAW);
-
-        glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3*sizeof(float), (void *) 0);
-        glEnableVertexAttribArray(0);
-
-        glBindBuffer(GL_ARRAY_BUFFER, obj->nbo);
-        glBufferData(GL_ARRAY_BUFFER, obj->normals_num*3*sizeof(float), obj->normals, GL_STATIC_DRAW);
-
-        glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 3*sizeof(float), (void *) 0);
-        glEnableVertexAttribArray(1);
-
-        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER,obj->ebo);
-        glBufferData(GL_ELEMENT_ARRAY_BUFFER,obj->indices_num*sizeof(unsigned int),obj->indices, GL_STATIC_DRAW);
-
-        glBindVertexArray(0);
-        glBindBuffer(GL_ARRAY_BUFFER, 0);
-        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
-    }
-
-    glEnable(GL_DEPTH_TEST);
-}
-
-
-struct object *create_object(float mass, const char *model) {
-    struct object *new_object = (struct object *) malloc(sizeof(struct object));
-
-    if (new_object == NULL) {
-        return NULL;
-    }
-
-    new_object->mass = mass;
-    glm_vec4_one(new_object->position);
-    glm_vec4_one(new_object->rotation);
-    glm_vec4_zero(new_object->translation_force);
-    glm_vec4_zero(new_object->rotation_force);
-    new_object->vertices_num = 0;
-    new_object->indices_num = 0;
-    new_object->normals_num = 0;
-    new_object->scale = 1.0f;
-    new_object->vertices = NULL;
-    new_object->indices = NULL;
-    new_object->normals = NULL;
-    new_object->next = NULL;
-    new_object->paths = NULL;
-    new_object->paths_num = 0;
-    new_object->paths_max = MAX_PATHS;
-    glm_vec3_one(new_object->color);
-
-    // choose random color
-    for (int i = 0; i < 3; i++) {
-        new_object->color[i] = 0.5f + (fabs(frand48()) / 2);
-    }
-
-    if (load_model_to_object(model, new_object) == -1) {
-        return NULL;
-    }
-
-    if (objects == NULL) {
-        objects = new_object;
-        return new_object;
-    }
-
-    struct object *obj = objects;
-    while (obj->next != NULL) {
-        obj = obj->next;
-    }
-
-    obj->next = new_object;
-
-    return new_object;
-}
-
 int main(int argc, char **argv) {
     srandom(time(NULL));
 
@@ -609,27 +635,29 @@ int main(int argc, char **argv) {
 
     // objects
     struct object *a = create_object(1.0f, "assets/models/sphere.obj");
-    struct object *b = create_object(1.0f, "assets/models/sphere.obj");
-    //struct object *c = create_object(1.0f, "assets/models/sphere.obj");
+    struct object *b = create_object(1000000000.0f, "assets/models/sphere.obj");
+    struct object *c = create_object(1.0f, "assets/models/sphere.obj");
     float distance = -200.0f;
 
-//    vec4 a_pos = {0.0f, 50.0f, distance, 0.0f};
-//    glm_vec4_add(a->position, a_pos, a->position);
-    vec4 a_pos = {0.0f, -40.0f, -150.0f, 0.0f};
+    vec4 a_pos = {0.0f, 50.0f, distance, 0.0f};
     glm_vec4_add(a->position, a_pos, a->position);
+    //vec4 a_pos = {0.0f, -0.0f, -150.0f, 0.0f};
+    //glm_vec4_add(a->position, a_pos, a->position);
 
-    vec4 b_pos = {0.0f, -50.0f, -150.0f, 0.0f};
+    vec4 b_pos = {0.0f, -75.0f, -150.0f, 0.0f};
     glm_vec4_add(b->position, b_pos, b->position);
 
-    //vec4 c_pos = {0.0f, -20.0f, distance, 0.0f};
-    //glm_vec4_add(c->position, c_pos, c->position);
+    vec4 c_pos = {0.0f, -20.0f, distance, 0.0f};
+    glm_vec4_add(c->position, c_pos, c->position);
 
     float n = 0.05f;
 
-//    vec3 a_boost = {-10*n, 0.0f, 0.0f};
-//    glm_vec3_add(a->translation_force, a_boost, a->translation_force);
+    vec3 b_boost = {10*n, 0.0f, 0.0f};
+
+    glm_vec3_add(b->translation_force, b_boost , b->translation_force);
 
     b->scale = 2.0f;
+    camera_lock = b;
 
     setup();
 
