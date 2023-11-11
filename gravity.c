@@ -21,6 +21,10 @@ float camera_sensitivity = 0.01f;
 float movement_speed = 2.0f;
 GLint screen_viewport[4]; // viewport: x,y,width,height
 int toggle_tracing = 0; // true or false
+long added_particles = 0;
+
+// tmp
+struct model *sphere_model;
 
 // opengl
 unsigned int shader_program;
@@ -144,7 +148,7 @@ void display() {
     glm_lookat(camera_pos, camera_center, camera_up, view);
 
     glm_mat4_identity(projection);
-    glm_perspective(glm_rad(fov), (float) screen_viewport[2]/(float) screen_viewport[3], 0.01f, 10000.0f, projection);
+    glm_perspective(glm_rad(fov), (float) screen_viewport[2]/(float) screen_viewport[3], 0.01f, 100000.0f, projection);
 
     view_uniform = glGetUniformLocation(shader_program, "view");
     projection_uniform = glGetUniformLocation(shader_program, "projection");
@@ -158,6 +162,7 @@ void display() {
     for (struct object *obj = objects; obj != NULL; obj = obj->next) {
         mat4 translation_matrix;
         glm_mat4_identity(translation_matrix);
+        struct model *obj_model = obj->model;
 
         // calculate gravity
         for (struct object *target = objects; target != NULL; target = target->next) {
@@ -204,7 +209,7 @@ void display() {
         glUniform1f(scale_uniform, obj->scale);
 
         glBindVertexArray(obj->vao);
-        glDrawElements(GL_TRIANGLES, obj->indices_num, GL_UNSIGNED_INT, (void *) 0);
+        glDrawElements(GL_TRIANGLES, obj_model->indices_num, GL_UNSIGNED_INT, (void *) 0);
 
         glBindVertexArray(obj->pvao);
 
@@ -230,6 +235,7 @@ void setup() {
     glGetIntegerv(GL_VIEWPORT, screen_viewport);
 
     for (struct object *obj = objects; obj != NULL; obj = obj->next) {
+        struct model *obj_model = obj->model;
         glGenVertexArrays(1, &obj->vao);
         glGenVertexArrays(1, &obj->pvao);
         glGenBuffers(1, &obj->vbo);
@@ -240,19 +246,19 @@ void setup() {
         glBindVertexArray(obj->vao);
 
         glBindBuffer(GL_ARRAY_BUFFER,obj->vbo);
-        glBufferData(GL_ARRAY_BUFFER,obj->vertices_num*3*sizeof(float),obj->vertices, GL_STATIC_DRAW);
+        glBufferData(GL_ARRAY_BUFFER,obj_model->vertices_num*3*sizeof(float),obj_model->vertices, GL_STATIC_DRAW);
 
         glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3*sizeof(float), (void *) 0);
         glEnableVertexAttribArray(0);
 
         glBindBuffer(GL_ARRAY_BUFFER, obj->nbo);
-        glBufferData(GL_ARRAY_BUFFER, obj->normals_num*3*sizeof(float), obj->normals, GL_STATIC_DRAW);
+        glBufferData(GL_ARRAY_BUFFER, obj_model->normals_num*3*sizeof(float), obj_model->normals, GL_STATIC_DRAW);
 
         glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 3*sizeof(float), (void *) 0);
         glEnableVertexAttribArray(1);
 
         glBindBuffer(GL_ELEMENT_ARRAY_BUFFER,obj->ebo);
-        glBufferData(GL_ELEMENT_ARRAY_BUFFER,obj->indices_num*sizeof(unsigned int),obj->indices, GL_STATIC_DRAW);
+        glBufferData(GL_ELEMENT_ARRAY_BUFFER, obj_model->indices_num*sizeof(unsigned int), obj_model->indices, GL_STATIC_DRAW);
 
         glBindVertexArray(0);
         glBindBuffer(GL_ARRAY_BUFFER, 0);
@@ -329,7 +335,9 @@ void keyboard(unsigned char key, int x, int y) {
             break;
         case 'c':
         case 'C': {
-            struct object *a = create_object(1000000.0f, "assets/models/sphere.obj");
+            added_particles++;
+            fprintf(stdout, "INFO: ADDED PARTICLES COUNT %ld\n", added_particles);
+            struct object *a = create_object(1000000.0f, sphere_model);
 
             float n = 0.05f;
             vec4 a_pos = {frand48() * 100, frand48() * 100, -150.0f, 0.0f};
@@ -429,9 +437,15 @@ int main(int argc, char **argv) {
     }
 
     // scene setup
-    struct object *a = create_object(100000000.0f, "assets/models/kub.obj");
-    struct object *b = create_object(100000.0f, "assets/models/kub.obj");
-    struct object *c = create_object(10000000.0f, "assets/models/sphere.obj");
+    sphere_model = load_model("assets/models/sphere.obj");
+    if (sphere_model == NULL) {
+        fprintf(stderr, "Error: loading model");
+        return EXIT_FAILURE;
+    }
+
+    struct object *a = create_object(100000000.0f, sphere_model);
+    struct object *b = create_object(100000.0f, sphere_model);
+    struct object *c = create_object(10000000.0f, sphere_model);
     float distance = -500.0f;
 
     vec4 a_pos = {0.0f, 0.0f, distance, 0.0f};
@@ -457,6 +471,8 @@ int main(int argc, char **argv) {
     // b->scale = 2.0f;
     a->scale = 5.0f;
     b->scale = 10.0f;
+//    camera_lock = b;
+
 
     setup();
     glutMainLoop();

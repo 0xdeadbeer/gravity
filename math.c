@@ -13,25 +13,25 @@ float frand48(void) {
 }
 
 void calculate_gravity(struct object *src, struct object *target, vec3 force) {
-    vec4 tmp;
-    glm_vec4_sub(target->position, src->position, tmp);
+    vec4 v4distance;
+    glm_vec4_sub(target->position, src->position, v4distance);
 
-    vec3 distance;
-    glm_vec3(tmp, distance);
+    vec3 v3distance;
+    glm_vec3(v4distance, v3distance);
 
-    float distance_xy = sqrt((distance[0] * distance[0]) + (distance[1] * distance[1]));
-    float distance_xyz = sqrt((distance_xy * distance_xy) + (distance[2] * distance[2]));
+    float distance_xy = sqrt((v3distance[0] * v3distance[0]) + (v3distance[1] * v3distance[1]));
+    float distance_xyz = sqrt((distance_xy * distance_xy) + (v3distance[2] * v3distance[2]));
     float force_scale = 4.0f;
 
     float g = 6.67f * 1e-11f;
     float top = g * src->mass * target->mass;
 
     for (int i = 0; i < 3; i++) {
-        distance[i] = (distance[i] * distance[i] * distance[i]);
+        v3distance[i] = (v3distance[i] * v3distance[i] * v3distance[i]);
     }
 
     for (int i = 0; i < 3; i++) {
-        if (distance[i] == 0) {
+        if (v3distance[i] == 0) {
             force[i] = 0.0f;
             continue;
         }

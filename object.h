@@ -3,13 +3,21 @@
 
 #include <cglm/cglm.h>
 
-#define MAX_PATHS 5500
+#define MAX_PATHS 2000
+
+struct model {
+    float *vertices;
+    unsigned int *indices;
+    float *normals;
+
+    long vertices_num;
+    long indices_num;
+    long normals_num;
+};
 
 struct object {
     vec4 translation_force;
-    vec4 rotation_force;
     vec4 position;
-    vec4 rotation;
     vec3 color;
     float mass;
     void *next;
@@ -18,12 +26,7 @@ struct object {
     int paths_num;
     int paths_max;
 
-    float *vertices;
-    unsigned int *indices;
-    float *normals;
-    long vertices_num;
-    long indices_num;
-    long normals_num;
+    struct model *model;
     float scale;
 
     unsigned int vao; // array object for the actual object
@@ -37,8 +40,9 @@ struct object {
 
 extern struct object *objects;
 
-int load_model_to_object(const char *path, struct object *obj);
+//int load_model_to_object(const char *path, struct object *obj);
+struct model *load_model(const char *path);
 int record_path(struct object *obj);
-struct object *create_object(float mass, const char *model);
+struct object *create_object(float mass, struct model *model);
 
 #endif
