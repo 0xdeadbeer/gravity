@@ -445,7 +445,6 @@ int main(int argc, char **argv) {
 
     struct object *a = create_object(100000000.0f, sphere_model);
     struct object *b = create_object(100000.0f, sphere_model);
-    struct object *c = create_object(10000000.0f, sphere_model);
     float distance = -500.0f;
 
     vec4 a_pos = {0.0f, 0.0f, distance, 0.0f};
@@ -458,15 +457,11 @@ int main(int argc, char **argv) {
     // vec4 b_pos = {0.0f, -75.0f, -150.0f, 0.0f};
     // glm_vec4_add(b->position, b_pos, b->position);
 
-    vec4 c_pos = {-100.0f, -400.0f, distance, 0.0f};
-    glm_vec4_add(c->position, c_pos, c->position);
-
     float n = 0.05f;
 
     vec3 b_boost = {-70*n, 0.0f, 0.0f};
 
     glm_vec3_add(b->translation_force, b_boost , b->translation_force);
-    glm_vec3_add(c->translation_force, b_boost , c->translation_force);
 
     // b->scale = 2.0f;
     a->scale = 5.0f;

@@ -1,0 +1,36 @@
++-------------+
+|   Gravity   |
++-------------+
+
+    C+OpenGL simulator of mass objects in 
+    space - according to Newton.
+
+FEATURES 
+
+    [DONE] Object tracing
+        [DONE] Toggle object tracing
+    [DONE] Scaling up/down objects
+    [DONE] Locking camera view to an object
+    [TODO] File format for importing scenes
+    [TODO] Collision 
+
+INSTALL
+
+    Build automation system is cmake. Thus, one 
+    can compile this project much like any other 
+    cmake project.
+    
+    mkdir build
+    
+    cd build
+    
+    cmake ..
+    
+    make all
+
+    ./gravity
+
+LICENSE 
+
+    Gravity is licensed under the GPL-3.0 license. 
+    See the `LICENSE` file for more information.
